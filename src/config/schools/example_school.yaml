@@ -1,0 +1,35 @@
+school_name: "Example University"
+portal_url: "https://portal.example.edu"
+timeout: 30
+
+hints:
+  login_page_indicators:
+    - "Sign in"
+    - "Login"
+    - "Username"
+    - "Password"
+  dashboard_indicators:
+    - "Dashboard"
+    - "Applications"
+    - "My Applications"
+  application_status_indicators:
+    - "Status"
+    - "Decision"
+    - "Application Status"
+  offer_indicators:
+    - "Offer Letter"
+    - "Download"
+    - "Accept Offer"
+    - "Admission Letter"
+
+selectors:
+  # Optional - agent will discover these if not provided
+  username_field: "input[name='username']"
+  password_field: "input[name='password']"
+  login_button: "button[type='submit']"
+
+notes: |
+  This is an example configuration file.
+  Replace with actual school portal details.
+
+
