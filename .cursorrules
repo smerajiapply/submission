@@ -1,0 +1,222 @@
+# School Portal Automation - Cursor Rules
+
+## CRITICAL: No School-Specific Hardcoding
+
+**NEVER hardcode school-specific logic in agent files.**
+
+All school-specific behavior must come from YAML configuration files.
+
+## Forbidden Patterns
+
+### ❌ DO NOT create school-specific methods:
+```python
+# BAD - School-specific method names
+def _login_norquest(self): ...
+def _navigate_ocas(self): ...
+def _download_for_school_x(self): ...
+```
+
+### ❌ DO NOT use school name in conditionals:
+```python
+# BAD - Hardcoded school logic
+if school_name == "NorQuest":
+    await click("Applications")
+elif school_name == "OCAS":
+    await click("Offers")
+
+# BAD - School-specific checks
+if self.school_config.school_name.lower() == "ocas":
+    # OCAS-specific logic here
+```
+
+### ❌ DO NOT hardcode selectors or patterns:
+```python
+# BAD - Hardcoded selectors
+if dropdown_style:
+    await click('[aria-label="Applications"]')
+else:
+    await click('a:has-text("Offers")')
+```
+
+### ❌ DO NOT embed workflows in code:
+```python
+# BAD - Hardcoded workflow
+await fill_username()
+await click_next()
+await fill_password()
+await click_submit()
+```
+
+## Required Patterns
+
+### ✅ DO make agents generic and config-driven:
+```python
+# GOOD - Reads steps from config
+for step in config.login.steps:
+    result = await executor.execute_action(step, context)
+    if not result["success"]:
+        raise Exception(f"Step failed: {step.action}")
+```
+
+### ✅ DO put all school-specific logic in YAML:
+```yaml
+# norquest.yaml
+navigation:
+  steps:
+    - action: find_and_click
+      hints: ['Applications']
+    - action: find_and_click
+      hints: ['View applications']
+```
+
+### ✅ DO use ActionExecutor for all interactions:
+```python
+# GOOD - Generic action execution
+result = await self.executor.execute_action(step, context)
+```
+
+### ✅ DO keep agents purely generic:
+```python
+# GOOD - No school-specific knowledge
+async def execute_login(self, config, username, password):
+    for step in config.login.steps:
+        await self.executor.execute_action(step, context)
+```
+
+## Agent Responsibilities
+
+### LoginAgent
+- Execute `login.steps` from config
+- NO school-specific logic
+- NO knowledge of login types beyond executing steps
+
+### NavigationAgent
+- Execute `navigation.steps` from config
+- NO school-specific logic
+- NO knowledge of UI patterns beyond executing steps
+
+### DownloadAgent
+- Execute `download.steps` from config
+- NO school-specific logic
+- Handle generic scenarios (direct download, popup, new tab)
+
+### ActionExecutor
+- Generic action interpreter
+- NO school-specific logic
+- Implements action types (find_and_click, find_and_fill, etc.)
+- Falls back to vision when selectors fail
+
+## Configuration Structure
+
+All school-specific information goes in YAML:
+
+```yaml
+school_name: SchoolName
+portal_url: https://...
+
+login:
+  steps:
+    - action: find_and_fill
+      selectors: [...]
+      hints: [...]
+      value: '{username}'
+    # ... more steps
+
+navigation:
+  steps:
+    - action: find_and_click
+      hints: [...]
+    # ... more steps
+
+download:
+  steps:
+    - action: find_and_click
+      hints: [...]
+      triggers_download: true
+```
+
+## When to Edit
+
+### Edit Agent Files When:
+- Fixing bugs that affect ALL schools
+- Adding new generic action types
+- Improving generic error handling
+- Enhancing vision fallback logic
+
+### Edit Config Files When:
+- Onboarding new schools
+- Adjusting selectors or hints for a specific school
+- Changing workflow steps for a specific school
+- Updating timeout values for a specific school
+
+## Testing Requirement
+
+**Any change to agent code must work for ALL schools without modification.**
+
+Before committing agent changes:
+1. Test with NorQuest
+2. Test with OCAS
+3. Verify no config changes were needed
+4. Document new action types or features
+
+## Code Review Checklist
+
+Before approving PR:
+- [ ] No school names in agent code
+- [ ] No school-specific conditionals
+- [ ] All workflows defined in configs
+- [ ] All selectors/hints in configs
+- [ ] Agents remain generic
+- [ ] Tests pass for all schools
+
+## Examples
+
+### ✅ GOOD: Generic Agent Code
+```python
+class LoginAgent:
+    async def execute_login(self, config: SchoolConfigV2, username: str, password: str):
+        context = ActionContext(username=username, password=password)
+        
+        for step in config.login.steps:
+            result = await self.executor.execute_action(step, context)
+            
+            if not result["success"] and not step.optional:
+                raise Exception(f"Login step failed: {step.action}")
+        
+        return True
+```
+
+### ❌ BAD: Hardcoded School Logic
+```python
+class LoginAgent:
+    async def execute_login(self, config: SchoolConfigV2, username: str, password: str):
+        if config.school_name == "NorQuest":
+            # Single-step login
+            await self.fill_username(username)
+            await self.fill_password(password)
+            await self.click_submit()
+        elif config.school_name == "OCAS":
+            # Two-step login
+            await self.fill_username(username)
+            await self.click_next()
+            await self.fill_password(password)
+            await self.click_submit()
+            await self.select_agency("ApplyBoard")
+```
+
+## Enforcement
+
+This rule is enforced by:
+1. Code review process
+2. Cursor AI assistant (this file)
+3. Testing requirements
+4. Architecture documentation
+
+**Violations of this rule must be rejected in code review.**
+
+## Questions?
+
+If you're unsure whether something should be in code or config:
+- **Default to config** - Put it in YAML
+- **Only in code if** - It's truly generic and applies to ALL schools
+

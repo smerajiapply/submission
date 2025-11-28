@@ -1,17 +1,35 @@
-"""Simplified browser agent that works directly with Gemini without LangChain agents"""
+"""
+Simplified browser agent that works directly with Gemini without LangChain agents.
+
+NOTE: This is the V1 agent optimized for complex Angular Material / SPA portals.
+      Currently used by NorQuest and OCAS due to their complex UI interactions.
+      
+      For simpler portals, use V2 config-driven agents (LoginAgent, NavigationAgent, DownloadAgent).
+      
+      This agent contains specialized methods for common SPA patterns but still reads
+      all school-specific config from YAML files (no school names hardcoded).
+"""
 
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 import google.generativeai as genai
 from src.automation.playwright_manager import PlaywrightManager
 from src.agents.vision_agent import VisionAgent
-from src.models.schemas import SchoolConfig
+from src.models.schemas import SchoolConfig, LoginType, NavigationType
 from src.config.base_config import settings
 from src.utils.logger import log
 
 
 class SimpleBrowserAgent:
-    """Simplified LLM-powered browser automation using direct Gemini calls"""
+    """
+    V1 Browser Agent - Optimized for Complex SPA Portals
+    
+    This agent is production-ready and battle-tested for Angular Material portals.
+    It uses config-driven routing but has specialized methods for complex interactions.
+    
+    Currently used by: NorQuest, OCAS
+    Recommended for: Angular/React SPAs with overlays, dynamic content, shadow DOM
+    """
     
     def __init__(
         self,

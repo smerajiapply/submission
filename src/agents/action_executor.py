@@ -109,85 +109,252 @@ class ActionExecutor:
         opens_new_tab: bool,
         timeout: int
     ) -> bool:
-        """Find element and click it"""
+        """Find element and click it with multiple fallback strategies"""
         try:
-            # Try selectors first
+            # Get initial page count for new tab detection
+            initial_page_count = len(self.browser.context.pages)
+            
+            # For text-based hints, first verify the text exists on page
+            if hints and not selectors:
+                page_text = await self.browser.get_page_text()
+                hint_found = False
+                for hint in hints:
+                    if hint in page_text:
+                        hint_found = True
+                        log.info(f"✓ Found hint '{hint}' on page")
+                        break
+                if not hint_found:
+                    log.warning(f"Hints not found on page, will try anyway...")
+            
+            # Strategy 1: Try selectors first (with JavaScript as primary for Angular Material)
             for selector in selectors:
                 try:
                     if opens_new_tab:
-                        # Check for popup
-                        try:
-                            async with self.browser.page.expect_popup(timeout=2000) as popup_info:
-                                if use_javascript:
-                                    await self.browser.evaluate_js(f'document.querySelector("{selector}").click()')
-                                else:
-                                    await self.browser.page.click(selector, timeout=timeout * 1000)
-                            
-                            # New tab opened - switch to it
-                            new_tab = await popup_info.value
-                            log.info(f"✓ New tab opened: {new_tab.url}")
-                            self.browser.page = new_tab
-                            await new_tab.wait_for_load_state('networkidle', timeout=timeout * 1000)
-                            return True
-                        except:
-                            # No popup, regular click
-                            if use_javascript:
-                                await self.browser.evaluate_js(f'document.querySelector("{selector}").click()')
-                            else:
-                                await self.browser.page.click(selector, timeout=timeout * 1000)
+                        success = await self._click_with_new_tab_handling(
+                            selector=selector, use_javascript=use_javascript, 
+                            timeout=timeout, initial_page_count=initial_page_count
+                        )
+                        if success:
                             return True
                     else:
+                        # For Angular Material, prefer JavaScript click
                         if use_javascript:
-                            await self.browser.evaluate_js(f'document.querySelector("{selector}").click()')
+                            script = f"""
+                            (function() {{
+                                const el = document.querySelector('{selector}');
+                                if (el) {{
+                                    el.scrollIntoView({{behavior: 'instant', block: 'center'}});
+                                    el.click();
+                                    return true;
+                                }}
+                                return false;
+                            }})()
+                            """
+                            result = await self.browser.evaluate_js(script)
+                            if result:
+                                log.info(f"✓ Clicked using JS selector: {selector}")
+                                await self.browser.wait(1)
+                                return True
                         else:
                             await self.browser.page.click(selector, timeout=timeout * 1000)
-                        log.info(f"✓ Clicked using selector: {selector}")
-                        return True
+                            log.info(f"✓ Clicked using selector: {selector}")
+                            return True
                 except Exception as e:
                     log.debug(f"Selector '{selector}' failed: {e}")
                     continue
             
-            # Try hints with Playwright's text selector
+            # Strategy 2: Try hints with Playwright's text selector
             for hint in hints:
                 try:
                     if opens_new_tab:
-                        try:
-                            async with self.browser.page.expect_popup(timeout=2000) as popup_info:
-                                await self.browser.click_element(text=hint, timeout=timeout)
-                            new_tab = await popup_info.value
-                            log.info(f"✓ New tab opened: {new_tab.url}")
-                            self.browser.page = new_tab
-                            await new_tab.wait_for_load_state('networkidle', timeout=timeout * 1000)
-                            return True
-                        except:
-                            await self.browser.click_element(text=hint, timeout=timeout)
+                        success = await self._click_with_new_tab_handling(
+                            text=hint, use_javascript=use_javascript,
+                            timeout=timeout, initial_page_count=initial_page_count
+                        )
+                        if success:
                             return True
                     else:
-                        await self.browser.click_element(text=hint, timeout=timeout)
-                        log.info(f"✓ Clicked using hint: {hint}")
-                        return True
+                        result = await self.browser.click_element(text=hint, timeout=timeout)
+                        if result:  # click_element returns bool, not raises
+                            log.info(f"✓ Clicked using hint: {hint}")
+                            return True
+                        else:
+                            log.debug(f"Hint '{hint}' click returned False")
                 except Exception as e:
-                    log.debug(f"Hint '{hint}' failed: {e}")
+                    log.debug(f"Hint '{hint}' direct click failed: {e}")
                     continue
             
-            # Fallback to vision
-            log.warning("All selectors and hints failed, trying vision...")
-            screenshot = await self.browser.capture_screenshot("find_element_fallback")
-            vision_result = await self.vision_agent.extract_information(
-                screenshot,
-                f"Find and describe the location of a {target_type.value if target_type else 'element'} with text: {', '.join(hints)}. Is it clickable? Where is it?"
-            )
-            log.info(f"Vision result: {vision_result}")
+            # Strategy 3: JavaScript fallback for Angular Material overlays (menus, dropdowns)
+            # Angular Material renders dropdowns in .cdk-overlay-container
+            log.info("Trying Angular Material overlay JavaScript...")
+            for hint in hints:
+                try:
+                    script = f"""
+                    (function() {{
+                        const searchText = '{hint}';
+                        
+                        // First check overlay container (for dropdowns/menus)
+                        const overlayContainer = document.querySelector('.cdk-overlay-container');
+                        if (overlayContainer) {{
+                            // Get all potential clickable elements in overlay
+                            const overlayElements = overlayContainer.querySelectorAll('button, a, span, div[role="menuitem"], mat-option, [role="option"], .mat-menu-item, .mat-mdc-menu-item');
+                            for (const el of overlayElements) {{
+                                if (el.textContent.trim().includes(searchText)) {{
+                                    el.scrollIntoView({{behavior: 'instant', block: 'center'}});
+                                    el.click();
+                                    return 'clicked_in_overlay';
+                                }}
+                            }}
+                        }}
+                        
+                        // Use TreeWalker to find text nodes containing the search text
+                        const walker = document.createTreeWalker(
+                            document.body,
+                            NodeFilter.SHOW_TEXT,
+                            {{
+                                acceptNode: function(node) {{
+                                    return node.textContent.includes(searchText) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+                                }}
+                            }}
+                        );
+                        
+                        let textNode;
+                        while (textNode = walker.nextNode()) {{
+                            // Walk up from text node to find clickable parent
+                            let clickable = textNode.parentElement;
+                            let maxDepth = 10;  // Don't walk too far up
+                            
+                            while (clickable && clickable !== document.body && maxDepth > 0) {{
+                                // Check for Angular Material clickable elements
+                                const hasClickHandler = clickable.onclick || clickable.hasAttribute('ng-click') || clickable.hasAttribute('(click)');
+                                const isButton = clickable.tagName === 'BUTTON';
+                                const isLink = clickable.tagName === 'A';
+                                const isMatTrigger = clickable.hasAttribute('mat-menu-trigger-for') || clickable.hasAttribute('[matMenuTriggerFor]');
+                                const isMatButton = clickable.classList.contains('mat-button') || clickable.classList.contains('mat-mdc-button') || 
+                                                   clickable.classList.contains('mat-raised-button') || clickable.classList.contains('mat-icon-button');
+                                const isMatMenuItem = clickable.classList.contains('mat-menu-item') || clickable.classList.contains('mat-mdc-menu-item');
+                                const hasRole = ['button', 'link', 'menuitem', 'row'].includes(clickable.getAttribute('role'));
+                                const isMatRow = clickable.classList.contains('mat-row') || clickable.classList.contains('mat-mdc-row');
+                                
+                                if (hasClickHandler || isButton || isLink || isMatTrigger || isMatButton || isMatMenuItem || hasRole || isMatRow) {{
+                                    clickable.scrollIntoView({{behavior: 'instant', block: 'center'}});
+                                    clickable.click();
+                                    return 'clicked_parent';
+                                }}
+                                clickable = clickable.parentElement;
+                                maxDepth--;
+                            }}
+                        }}
+                        
+                        // Last resort: find any element containing the text and click it
+                        const allElements = document.querySelectorAll('*');
+                        for (const el of allElements) {{
+                            if (el.textContent.includes(searchText) && el.textContent.length < searchText.length + 100) {{
+                                el.scrollIntoView({{behavior: 'instant', block: 'center'}});
+                                el.click();
+                                return 'clicked_element';
+                            }}
+                        }}
+                        
+                        return false;
+                    }})()
+                    """
+                    result = await self.browser.evaluate_js(script)
+                    if result:
+                        log.info(f"✓ Clicked '{hint}' using JavaScript ({result})")
+                        await self.browser.wait(2)
+                        
+                        # Check for new tabs if expected
+                        if opens_new_tab:
+                            all_pages = self.browser.context.pages
+                            if len(all_pages) > initial_page_count:
+                                new_page = all_pages[-1]
+                                log.info(f"✓ New tab detected: {new_page.url}")
+                                self.browser.page = new_page
+                                await new_page.wait_for_load_state('networkidle', timeout=timeout * 1000)
+                        
+                        return True
+                except Exception as e:
+                    log.debug(f"JavaScript click for '{hint}' failed: {e}")
+                    continue
             
-            # Try one more time with broader selectors
-            if target_type == TargetType.BUTTON:
-                await self.browser.page.click('button', timeout=timeout * 1000)
-                return True
+            # Strategy 4: Try a:has-text selector (often works for links)
+            for hint in hints:
+                try:
+                    selector = f'a:has-text("{hint}")'
+                    await self.browser.page.click(selector, timeout=3000)
+                    log.info(f"✓ Clicked using a:has-text selector: {hint}")
+                    
+                    if opens_new_tab:
+                        await self.browser.wait(2)
+                        all_pages = self.browser.context.pages
+                        if len(all_pages) > initial_page_count:
+                            new_page = all_pages[-1]
+                            log.info(f"✓ New tab detected: {new_page.url}")
+                            self.browser.page = new_page
+                            await new_page.wait_for_load_state('networkidle', timeout=timeout * 1000)
+                    
+                    return True
+                except Exception as e:
+                    log.debug(f"a:has-text selector failed for '{hint}': {e}")
+                    continue
             
+            # All strategies failed
+            log.warning("All click strategies failed")
+            screenshot = await self.browser.capture_screenshot("click_failed_fallback")
             return False
         
         except Exception as e:
             log.error(f"Find and click failed: {e}")
+            return False
+    
+    async def _click_with_new_tab_handling(
+        self,
+        selector: str = None,
+        text: str = None,
+        use_javascript: bool = False,
+        timeout: int = 10,
+        initial_page_count: int = 1
+    ) -> bool:
+        """Helper method to click an element and handle new tab opening"""
+        try:
+            # Try to catch popup
+            try:
+                async with self.browser.page.expect_popup(timeout=3000) as popup_info:
+                    if selector:
+                        if use_javascript:
+                            await self.browser.evaluate_js(f'document.querySelector("{selector}")?.click()')
+                        else:
+                            await self.browser.page.click(selector, timeout=timeout * 1000)
+                    else:
+                        await self.browser.click_element(text=text, timeout=timeout)
+                
+                # Popup opened successfully
+                new_tab = await popup_info.value
+                log.info(f"✓ New tab opened via popup: {new_tab.url}")
+                self.browser.page = new_tab
+                await new_tab.wait_for_load_state('networkidle', timeout=timeout * 1000)
+                return True
+                
+            except Exception as popup_error:
+                log.debug(f"No popup detected, checking for new pages: {popup_error}")
+                
+                # The click might have happened but no popup event - check for new pages
+                await self.browser.wait(2)
+                all_pages = self.browser.context.pages
+                
+                if len(all_pages) > initial_page_count:
+                    new_page = all_pages[-1]
+                    log.info(f"✓ New page detected after click: {new_page.url}")
+                    self.browser.page = new_page
+                    await new_page.wait_for_load_state('networkidle', timeout=timeout * 1000)
+                    return True
+                
+                # No new page - the click itself might have failed, return False
+                return False
+                
+        except Exception as e:
+            log.debug(f"Click with new tab handling failed: {e}")
             return False
     
     async def _find_and_fill(

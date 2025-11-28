@@ -72,11 +72,22 @@ class DownloadAgent:
                     
                     # For find_and_click with triggers_download=True
                     elif step.action == ActionType.FIND_AND_CLICK and step.triggers_download:
+                        # Track pages before click to detect new ones
+                        pages_before = len(self.browser.context.pages)
+                        current_page = self.browser.page
+                        
                         # Set up download listener before clicking
                         try:
-                            async with self.browser.page.expect_download(timeout=step.timeout * 1000) as download_info:
+                            # Use longer timeout for async downloads (modal/spinner pattern)
+                            download_timeout = max(step.timeout * 1000, 30000)  # At least 30 seconds
+                            log.info(f"Setting up download listener with {download_timeout}ms timeout...")
+                            
+                            async with self.browser.page.expect_download(timeout=download_timeout) as download_info:
                                 # Execute the click
                                 result = await self.executor.execute_action(step, context)
+                                # Wait extra time for modal/spinner to process
+                                log.info("Waiting for download to start (modal/spinner may appear)...")
+                                await self.browser.wait(5)
                             
                             # Capture the download
                             download = await download_info.value
@@ -88,45 +99,112 @@ class DownloadAgent:
                             download_result = temp_path
                             
                         except Exception as e:
-                            log.warning(f"Direct download failed, trying alternate methods: {e}")
+                            log.warning(f"Direct download failed: {e}")
                             
-                            # Check for new tabs/popups that might contain PDF
-                            await self.browser.wait(2)
-                            all_pages = self.browser.context.pages
+                            # Wait a bit more and try to capture download again
+                            log.info("Waiting longer for async download...")
+                            await self.browser.wait(5)
                             
-                            if len(all_pages) > 1:
-                                new_page = all_pages[-1]
-                                log.info(f"New page detected: {new_page.url}")
+                            # Try a second time with expect_download
+                            try:
+                                async with self.browser.page.expect_download(timeout=10000) as download_info:
+                                    await self.browser.wait(2)
                                 
-                                # Try to download PDF from new page
-                                if 'pdf' in new_page.url.lower() or 'binary-documents' in new_page.url:
-                                    log.info("PDF URL detected in new page")
+                                download = await download_info.value
+                                log.info(f"✓ Download captured on retry: {download.suggested_filename}")
+                                
+                                temp_path = Path(f"/tmp/{download.suggested_filename}")
+                                await download.save_as(temp_path)
+                                download_result = temp_path
+                            
+                            except Exception as retry_error:
+                                log.warning(f"Retry download capture failed: {retry_error}")
+                                
+                                # Check for NEW tabs/popups (not existing ones)
+                                all_pages = self.browser.context.pages
+                                
+                                if len(all_pages) > pages_before:
+                                    # Get the actually new page (not an existing one)
+                                    for page in all_pages:
+                                        if page != current_page and page.url != current_page.url:
+                                            log.info(f"New page detected: {page.url}")
+                                            
+                                            # Try to download PDF from new page
+                                            if 'pdf' in page.url.lower() or 'binary-documents' in page.url or 'inline=true' in page.url:
+                                                log.info("PDF URL detected in new page")
+                                                
+                                                try:
+                                                    # Use fetch API to download
+                                                    pdf_bytes = await page.evaluate("""
+                                                        async (url) => {
+                                                            const response = await fetch(url);
+                                                            const blob = await response.blob();
+                                                            const buffer = await blob.arrayBuffer();
+                                                            return Array.from(new Uint8Array(buffer));
+                                                        }
+                                                    """, page.url)
+                                                    
+                                                    pdf_bytes = bytes(pdf_bytes)
+                                                    log.info(f"✓ Downloaded PDF via fetch: {len(pdf_bytes)} bytes")
+                                                    
+                                                    # Save to temp file
+                                                    temp_path = Path(f"/tmp/{application_id}_offer.pdf")
+                                                    temp_path.write_bytes(pdf_bytes)
+                                                    download_result = temp_path
+                                                    
+                                                    await page.close()
+                                                
+                                                except Exception as pdf_error:
+                                                    log.error(f"PDF download from new page failed: {pdf_error}")
+                                                    if page and not page.is_closed():
+                                                        await page.close()
+                                            break
+                    
+                    # For find_and_click with opens_new_tab=True (OCAS case)
+                    elif step.action == ActionType.FIND_AND_CLICK and step.opens_new_tab:
+                        # Execute the click (ActionExecutor handles popup detection)
+                        result = await self.executor.execute_action(step, context)
+                        
+                        # Check if a new page was opened
+                        await self.browser.wait(2)
+                        all_pages = self.browser.context.pages
+                        
+                        if len(all_pages) > 1:
+                            new_page = all_pages[-1]
+                            log.info(f"✓ New page opened: {new_page.url}")
+                            
+                            # Check if it's a PDF URL
+                            if 'pdf' in new_page.url.lower() or 'binary-documents' in new_page.url or 'inline=true' in new_page.url:
+                                log.info("PDF URL detected - downloading content...")
+                                
+                                try:
+                                    # Use fetch API to download actual PDF bytes
+                                    pdf_bytes = await new_page.evaluate("""
+                                        async (url) => {
+                                            const response = await fetch(url);
+                                            const blob = await response.blob();
+                                            const buffer = await blob.arrayBuffer();
+                                            return Array.from(new Uint8Array(buffer));
+                                        }
+                                    """, new_page.url)
                                     
-                                    try:
-                                        # Use fetch API to download
-                                        pdf_bytes = await new_page.evaluate("""
-                                            async (url) => {
-                                                const response = await fetch(url);
-                                                const blob = await response.blob();
-                                                const buffer = await blob.arrayBuffer();
-                                                return Array.from(new Uint8Array(buffer));
-                                            }
-                                        """, new_page.url)
-                                        
-                                        pdf_bytes = bytes(pdf_bytes)
-                                        log.info(f"✓ Downloaded PDF via fetch: {len(pdf_bytes)} bytes")
-                                        
-                                        # Save to temp file
-                                        temp_path = Path(f"/tmp/{application_id}_offer.pdf")
-                                        temp_path.write_bytes(pdf_bytes)
-                                        download_result = temp_path
-                                        
+                                    pdf_bytes = bytes(pdf_bytes)
+                                    log.info(f"✓ Downloaded PDF via fetch API: {len(pdf_bytes)} bytes")
+                                    
+                                    # Save to temp file
+                                    temp_path = Path(f"/tmp/{application_id}_offer.pdf")
+                                    temp_path.write_bytes(pdf_bytes)
+                                    download_result = temp_path
+                                    
+                                    await new_page.close()
+                                    log.info("✓ PDF downloaded and new tab closed")
+                                    
+                                except Exception as pdf_error:
+                                    log.error(f"PDF download from popup failed: {pdf_error}")
+                                    import traceback
+                                    log.error(traceback.format_exc())
+                                    if new_page and not new_page.is_closed():
                                         await new_page.close()
-                                    
-                                    except Exception as pdf_error:
-                                        log.error(f"PDF download from new page failed: {pdf_error}")
-                                        if new_page and not new_page.is_closed():
-                                            await new_page.close()
                     else:
                         # Regular step
                         result = await self.executor.execute_action(step, context)

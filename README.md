@@ -148,19 +148,45 @@ run.py
   └─> WorkflowEngine
         ├─> Config Detection (V1 or V2)
         │
-        ├─> V2 Path (Config-Driven)
+        ├─> V2 Path (Config-Driven) [For Simple Portals]
         │     ├─> LoginAgent → ActionExecutor
         │     ├─> NavigationAgent → ActionExecutor  
         │     └─> DownloadAgent → ActionExecutor
         │
-        └─> V1 Path (Legacy)
-              └─> SimpleBrowserAgent (backward compat)
+        └─> V1 Path (Proven Reliable) [For Complex Angular/SPA Portals]
+              └─> SimpleBrowserAgent (NorQuest, OCAS)
 
 ActionExecutor
   ├─> Try selectors
   ├─> Try hints with Playwright
   └─> Fallback to Vision (if needed)
 ```
+
+## Architecture Decision: V1 vs V2
+
+### V1 SimpleBrowserAgent (Currently Used)
+- **Used by**: NorQuest, OCAS
+- **Best for**: Complex Angular Material / SPA portals
+- **Approach**: Specialized methods with robust JavaScript interaction
+- **Status**: ✅ Production-ready, downloading full PDFs reliably
+
+### V2 Config-Driven Agents (Available)
+- **Used by**: Future schools
+- **Best for**: Simple HTML/React portals with standard interactions
+- **Approach**: Generic action executor reads steps from config
+- **Status**: ✅ Implemented, ready for simple portals
+
+### Why Hybrid?
+
+Angular Material portals (like NorQuest/OCAS) use:
+- Overlay backdrops
+- Dynamic content loading
+- Complex JavaScript-driven interactions
+- Shadow DOM elements
+
+The specialized SimpleBrowserAgent has battle-tested logic for these patterns, making it more reliable than a generic config-driven approach for these specific portals.
+
+**All school-specific config still lives in YAML files** - no hardcoding in SimpleBrowserAgent itself. It just has methods optimized for common SPA patterns.
 
 ## Onboarding New Schools
 

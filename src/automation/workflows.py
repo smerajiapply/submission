@@ -14,7 +14,6 @@ from src.models.schemas import (
 )
 from src.models.config_schemas import SchoolConfigV2
 from src.automation.playwright_manager import PlaywrightManager
-from src.agents.simple_browser_agent import SimpleBrowserAgent
 from src.agents.login_agent import LoginAgent
 from src.agents.navigation_agent import NavigationAgent
 from src.agents.download_agent import DownloadAgent
@@ -30,7 +29,6 @@ class WorkflowEngine:
     def __init__(self):
         self.state = WorkflowState.INIT
         self.browser: Optional[PlaywrightManager] = None
-        self.agent: Optional[SimpleBrowserAgent] = None
         self.school_config: Optional[Union[SchoolConfig, SchoolConfigV2]] = None
         self.use_v2 = False  # Flag to determine which config version
     
@@ -209,103 +207,18 @@ class WorkflowEngine:
         )
     
     async def _execute_v1(self, request: ApplicationRequest) -> ApplicationResult:
-        """Execute workflow using V1 SimpleBrowserAgent (backward compatibility)"""
-        log.info("=== Using V1 SimpleBrowserAgent (Legacy) ===")
+        """
+        V1 SimpleBrowserAgent is DEPRECATED.
         
-        # Create agent
-        self.agent = SimpleBrowserAgent(self.browser, self.school_config)
+        Please convert your school config to V2 format with login/navigation/download steps.
+        See src/config/schools/norquest.yaml or ocas.yaml for examples.
         
-        # LOGIN: Authenticate
-        self.state = WorkflowState.LOGIN
-        log.info("State: LOGIN")
-        login_success = await self.agent.login(request.username, request.password)
-        
-        if not login_success:
-            return ApplicationResult(
-                success=False,
-                status=ApplicationStatus.UNKNOWN,
-                message="Login failed"
-            )
-        
-        log.info("Login successful!")
-        
-        # NAVIGATE & FIND_APPLICATION: Locate the application
-        self.state = WorkflowState.FIND_APPLICATION
-        log.info("State: FIND_APPLICATION")
-        
-        find_result = await self.agent.find_application(
-            application_id=request.application_id,
-            student_name=request.student_name,
-            student_email=request.student_email
-        )
-        
-        if not find_result.get("success"):
-            return ApplicationResult(
-                success=False,
-                status=ApplicationStatus.UNKNOWN,
-                message="Could not find application"
-            )
-        
-        # CHECK_STATUS: Extract status
-        self.state = WorkflowState.CHECK_STATUS
-        log.info("State: CHECK_STATUS")
-        
-        status_text = find_result.get("status_text", "").lower()
-        status = self._parse_status(status_text)
-        
-        log.info(f"Application status: {status}")
-        
-        # DOWNLOAD: Try to download offer if available
-        offer_downloaded = False
-        offer_path = None
-        
-        if status == ApplicationStatus.OFFER_READY or "offer" in status_text or "accepted" in status_text:
-            self.state = WorkflowState.DOWNLOAD
-            log.info("State: DOWNLOAD")
-            
-            download_result = await self.agent.download_offer(
-                application_id=request.application_id,
-                school_name=self.school_config.school_name
-            )
-            
-            if download_result:
-                # Check if it's a Path object or dict
-                if isinstance(download_result, Path):
-                    log.info(f"Offer downloaded successfully: {download_result}")
-                    offer_downloaded = True
-                    offer_path = download_result
-                elif isinstance(download_result, dict) and download_result.get("success"):
-                    log.info("Offer download successful")
-                    offer_downloaded = True
-        
-        # COMPLETE
-        self.state = WorkflowState.COMPLETE
-        log.info("State: COMPLETE")
-        
-        # Save metadata
-        metadata = {
-            "school": request.school,
-            "application_id": request.application_id,
-            "student_name": request.student_name,
-            "status": status.value,
-            "status_text": status_text,
-            "offer_downloaded": offer_downloaded
-        }
-        
-        if request.application_id:
-            storage.save_metadata(
-                self.school_config.school_name,
-                request.application_id,
-                metadata
-            )
-        
-        return ApplicationResult(
-            success=True,
-            status=status,
-            offer_downloaded=offer_downloaded,
-            offer_path=str(offer_path) if offer_path else None,
-            message=f"Successfully checked application. Status: {status.value}",
-            metadata=metadata
+        V1 agent files have been moved to: backup/deprecated_agents/
+        """
+        raise NotImplementedError(
+            "V1 SimpleBrowserAgent is deprecated. "
+            "Please convert your school config to V2 format with login/navigation/download steps. "
+            "See src/config/schools/norquest.yaml for an example."
         )
     
     def _parse_status(self, status_text: str) -> ApplicationStatus:
@@ -335,64 +248,131 @@ class WorkflowEngine:
         username: str,
         password: str
     ) -> Dict[str, Any]:
-        """Interactive onboarding workflow for a new school"""
+        """
+        Create a V2 template config for a new school.
         
-        log.info(f"Starting onboarding for: {school_name}")
+        This creates a basic config template that needs to be customized
+        with the correct login/navigation/download steps for the school.
+        """
+        
+        log.info(f"Creating V2 config template for: {school_name}")
         
         try:
-            # Create minimal config
+            # Create V2 template config
             config_data = {
                 "school_name": school_name,
                 "portal_url": portal_url,
-                "hints": {
-                    "login_page_indicators": ["Sign in", "Login", "Username"],
-                    "dashboard_indicators": ["Dashboard", "Applications"],
-                    "application_status_indicators": ["Status", "Decision"],
-                    "offer_indicators": ["Offer", "Download", "Admission Letter"]
+                "login": {
+                    "steps": [
+                        {
+                            "action": "find_and_fill",
+                            "target_type": "input_field",
+                            "selectors": ['input[type="email"]', 'input[name="username"]'],
+                            "hints": ["Username", "Email"],
+                            "value": "{username}",
+                            "timeout": 10,
+                            "description": "Fill username field"
+                        },
+                        {
+                            "action": "find_and_fill",
+                            "target_type": "input_field",
+                            "selectors": ['input[type="password"]'],
+                            "hints": ["Password"],
+                            "value": "{password}",
+                            "timeout": 10,
+                            "description": "Fill password field"
+                        },
+                        {
+                            "action": "find_and_click",
+                            "target_type": "button",
+                            "selectors": ['button[type="submit"]'],
+                            "hints": ["Sign in", "Login"],
+                            "timeout": 10,
+                            "description": "Click login button"
+                        },
+                        {
+                            "action": "wait_for_load",
+                            "timeout": 5,
+                            "description": "Wait for page to load after login"
+                        }
+                    ],
+                    "max_retries": 3,
+                    "retry_delay": 2
                 },
-                "selectors": {},
+                "navigation": {
+                    "steps": [
+                        {
+                            "action": "find_and_click",
+                            "target_type": "menu_item",
+                            "selectors": [],
+                            "hints": ["Applications", "Offers"],
+                            "timeout": 10,
+                            "description": "Click applications/offers menu"
+                        },
+                        {
+                            "action": "wait_for_load",
+                            "timeout": 5,
+                            "description": "Wait for list to load"
+                        },
+                        {
+                            "action": "find_and_click",
+                            "target_type": "text",
+                            "hints": ["{application_id}"],
+                            "timeout": 10,
+                            "description": "Click on application ID"
+                        },
+                        {
+                            "action": "wait_for_load",
+                            "timeout": 5,
+                            "description": "Wait for details to load"
+                        }
+                    ],
+                    "max_retries": 3,
+                    "retry_delay": 2
+                },
+                "download": {
+                    "steps": [
+                        {
+                            "action": "find_and_click",
+                            "target_type": "button",
+                            "selectors": [],
+                            "hints": ["Download", "Print Offer", "View Letter"],
+                            "triggers_download": True,
+                            "timeout": 30,
+                            "description": "Click download button"
+                        }
+                    ],
+                    "max_retries": 3,
+                    "retry_delay": 2
+                },
+                "status_detection": {
+                    "offer_ready": ["Offer", "Conditional offer"],
+                    "accepted": ["Accepted", "Enrolled"],
+                    "rejected": ["Rejected", "Declined"],
+                    "pending": ["Pending", "Under review"]
+                },
                 "timeout": 30,
-                "notes": f"Auto-generated config during onboarding"
+                "notes": f"V2 template - customize steps for {school_name}"
             }
             
             # Save config
             config_path = settings.config_dir / f"{school_name.lower().replace(' ', '_')}.yaml"
             with open(config_path, 'w') as f:
-                yaml.dump(config_data, f, default_flow_style=False)
+                yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
             
-            log.info(f"Created config file: {config_path}")
+            log.info(f"Created V2 config template: {config_path}")
             
-            # Test the config with a test run
-            self.school_config = SchoolConfig(**config_data)
-            
-            self.browser = PlaywrightManager(headless=False)  # Visible for onboarding
-            await self.browser.start()
-            
-            self.agent = SimpleBrowserAgent(self.browser, self.school_config)
-            
-            # Test login
-            login_success = await self.agent.login(username, password)
-            
-            if login_success:
-                log.info("✓ Login successful!")
-                
-                # Analyze dashboard
-                analysis = await self.agent.analyze_current_page("Understand the dashboard layout")
-                
-                log.info(f"Dashboard analysis: {analysis}")
-                
-                return {
-                    "success": True,
-                    "config_path": str(config_path),
-                    "message": f"Successfully onboarded {school_name}",
-                    "dashboard_analysis": analysis
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": "Login failed during onboarding",
-                    "config_path": str(config_path)
-                }
+            return {
+                "success": True,
+                "config_path": str(config_path),
+                "message": f"Created V2 config template for {school_name}. Please customize the steps in the config file.",
+                "next_steps": [
+                    "1. Open the config file and customize login steps",
+                    "2. Add navigation steps specific to the portal",
+                    "3. Configure download steps (triggers_download or opens_new_tab)",
+                    "4. Test with: python run.py check-application --school <name> ..."
+                ]
+            }
         
         except Exception as e:
             log.error(f"Onboarding failed: {e}")
@@ -400,8 +380,4 @@ class WorkflowEngine:
                 "success": False,
                 "message": f"Onboarding failed: {str(e)}"
             }
-        
-        finally:
-            if self.browser:
-                await self.browser.close()
 

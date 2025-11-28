@@ -41,6 +41,18 @@ class BrowserAction(str, Enum):
     GO_BACK = "go_back"
 
 
+class LoginType(str, Enum):
+    """Login flow types for V1 agent"""
+    SINGLE_STEP = "single_step"
+    TWO_STEP = "two_step"
+
+
+class NavigationType(str, Enum):
+    """Navigation UI types for V1 agent"""
+    DROPDOWN = "dropdown"
+    LEFT_MODAL = "left_modal"
+
+
 class SchoolSelectors(BaseModel):
     """Optional CSS selectors for common elements"""
     username_field: Optional[str] = None
