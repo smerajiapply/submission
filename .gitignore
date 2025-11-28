@@ -32,9 +32,10 @@ temp/
 *.tmp
 
 # Credentials and sensitive data
-*.yaml
-!example_school.yaml
 credentials.json
 secrets.json
+
+# Allow school config files
+!src/config/schools/*.yaml
 
 

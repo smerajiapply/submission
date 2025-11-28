@@ -1,0 +1,165 @@
+school_name: OCAS
+portal_url: https://authenticate.ocas.ca/auth/Account/Login?ReturnUrl=%2Fauth%2Fconnect%2Fauthorize%2Fcallback%3Fclient_id%3Dintl.agent.implicit.prod%26redirect_uri%3Dhttps%253A%252F%252Finternational.ocas.ca%252Fagent%252Foidc%252Fauthorized.html%26response_type%3Did_token%2520token%26scope%3Dopenid%2520profile%2520email%2520intl_api.agent%26state%3Df9a1c2898f3e4ddc90988fa1a615f1a6%26nonce%3Dfc78f36fd4ba4371bc23da84c33c037b%26ui_locales%3Den-CA%26acr_values%3Dtimestamp%253A1663099043%2520redirectUri%253Ahttps%253A%252F%252Finternational.ocas.ca%252Fagent%252F
+
+# Login workflow - two-step login with agency selection
+login:
+  steps:
+    # Step 1: Enter username
+    - action: find_and_fill
+      target_type: input_field
+      selectors:
+        - 'input[name="Username"]'
+        - 'input[id="Username"]'
+        - 'input[type="email"]'
+      hints:
+        - 'Username'
+        - 'Email'
+        - 'User ID'
+      value: '{username}'
+      timeout: 10
+      description: 'Fill username field'
+    
+    # Step 2: Click Next button
+    - action: find_and_click
+      target_type: button
+      selectors:
+        - 'button[type="submit"]'
+      hints:
+        - 'Next'
+        - 'Continue'
+      timeout: 10
+      description: 'Click next button after username'
+    
+    # Step 3: Wait for password page
+    - action: wait_for_load
+      timeout: 5
+      description: 'Wait for password page to load'
+    
+    # Step 4: Enter password
+    - action: find_and_fill
+      target_type: input_field
+      selectors:
+        - 'input[name="Password"]'
+        - 'input[id="Password"]'
+        - 'input[type="password"]'
+      hints:
+        - 'Password'
+      value: '{password}'
+      timeout: 10
+      description: 'Fill password field'
+    
+    # Step 5: Click Sign in button
+    - action: find_and_click
+      target_type: button
+      selectors:
+        - 'button[type="submit"]'
+      hints:
+        - 'Sign in'
+        - 'Login'
+        - 'Submit'
+      timeout: 10
+      description: 'Click sign in button'
+    
+    # Step 6: Wait for agency selection page
+    - action: wait_for_load
+      timeout: 10
+      description: 'Wait for agency selection page'
+    
+    # Step 7: Select ApplyBoard agency (optional - may not always appear)
+    - action: find_and_click
+      target_type: button
+      selectors: []
+      hints:
+        - 'ApplyBoard'
+      use_javascript: true
+      optional: true
+      timeout: 10
+      description: 'Select ApplyBoard agency if presented'
+    
+    # Step 8: Wait for dashboard
+    - action: wait_for_load
+      timeout: 5
+      description: 'Wait for dashboard to load'
+  
+  max_retries: 3
+  retry_delay: 2
+
+# Navigation workflow - left modal style
+navigation:
+  steps:
+    # Step 1: Click Offers in left navigation
+    - action: find_and_click
+      target_type: menu_item
+      selectors: []
+      hints:
+        - 'Offers'
+      use_javascript: true
+      timeout: 10
+      description: 'Click Offers in left navigation menu'
+    
+    # Step 2: Wait for offers list to load
+    - action: wait_for_load
+      timeout: 5
+      description: 'Wait for offers list to load'
+    
+    # Step 3: Click on application ID
+    - action: find_and_click
+      target_type: text
+      hints:
+        - '{application_id}'
+      value: '{application_id}'
+      timeout: 10
+      description: 'Click on application ID'
+    
+    # Step 4: Wait for application details
+    - action: wait_for_load
+      timeout: 5
+      description: 'Wait for application details to load'
+  
+  max_retries: 3
+  retry_delay: 2
+
+# Download workflow - View Letter opens PDF in new tab
+download:
+  steps:
+    - action: find_and_click
+      target_type: link
+      selectors: []
+      hints:
+        - 'View Letter of Acceptance'
+        - 'View Letter'
+        - 'View Offer'
+        - 'Download Letter'
+      opens_new_tab: true
+      use_javascript: true
+      timeout: 15
+      description: 'Click view letter link (opens PDF in new tab)'
+  
+  max_retries: 3
+  retry_delay: 2
+
+# Status detection patterns
+status_detection:
+  offer_ready:
+    - 'Alternate Offer'
+    - 'Offer'
+    - 'Conditional offer'
+    - 'Unconditional offer'
+  accepted:
+    - 'Accepted'
+    - 'Deposit paid'
+    - 'Enrolled'
+    - 'Pre-registered'
+  rejected:
+    - 'Rejected'
+    - 'Declined'
+    - 'Not accepted'
+    - 'Refused'
+  pending:
+    - 'Pending'
+    - 'Under review'
+    - 'Submitted'
+    - 'In progress'
+
+timeout: 30
+notes: OCAS portal - V2 config-driven, two-step login with agency selection, left modal navigation, PDF opens in new tab

@@ -1,0 +1,146 @@
+school_name: NorQuest
+portal_url: https://norquest.vasuniverse.com/auth/signin
+
+# Login workflow - single-step login
+login:
+  steps:
+    - action: find_and_fill
+      target_type: input_field
+      selectors:
+        - 'input[id="username"]'
+        - 'input[name="username"]'
+        - 'input[type="email"]'
+      hints:
+        - 'Username'
+        - 'Email'
+        - 'User ID'
+      value: '{username}'
+      timeout: 10
+      description: 'Fill username field'
+    
+    - action: find_and_fill
+      target_type: input_field
+      selectors:
+        - 'input[type="password"]'
+        - 'input[id="password"]'
+        - 'input[name="password"]'
+      hints:
+        - 'Password'
+      value: '{password}'
+      timeout: 10
+      description: 'Fill password field'
+    
+    - action: find_and_click
+      target_type: button
+      selectors:
+        - 'button[type="submit"]'
+        - 'button:has-text("Sign in")'
+      hints:
+        - 'Sign in'
+        - 'Login'
+        - 'Submit'
+      timeout: 10
+      description: 'Click login button'
+    
+    - action: wait_for_load
+      timeout: 5
+      description: 'Wait for page to load after login'
+  
+  max_retries: 3
+  retry_delay: 2
+
+# Navigation workflow - dropdown style
+navigation:
+  steps:
+    - action: find_and_click
+      target_type: dropdown
+      selectors:
+        - '[mat-menu-trigger-for]'
+        - 'button[aria-haspopup="menu"]'
+      hints:
+        - 'Applications'
+      use_javascript: true
+      timeout: 10
+      description: 'Open applications dropdown (Angular Material)'
+    
+    - action: wait
+      timeout: 3
+      description: 'Wait for Angular Material dropdown to open'
+    
+    - action: find_and_click
+      target_type: menu_item
+      selectors: []
+      hints:
+        - 'View applications'
+        - 'All applications'
+      use_javascript: true
+      timeout: 10
+      description: 'Click view applications in dropdown'
+    
+    - action: wait_for_load
+      timeout: 10
+      description: 'Wait for applications list to load'
+    
+    - action: find_and_click
+      target_type: text
+      hints:
+        - '{application_id}'
+      value: '{application_id}'
+      opens_new_tab: true
+      timeout: 10
+      description: 'Click on application ID (opens in new tab)'
+    
+    - action: wait_for_load
+      timeout: 10
+      description: 'Wait for application details to load in new tab'
+  
+  max_retries: 3
+  retry_delay: 2
+
+# Download workflow - print offer button triggers download
+download:
+  steps:
+    - action: find_and_click
+      target_type: button
+      selectors: []
+      hints:
+        - 'Print Offer'
+        - 'Print offer'
+        - 'Download Offer'
+        - 'Download offer'
+        - 'Print Letter'
+      triggers_download: true
+      timeout: 45
+      description: 'Click print offer button (async download with modal)'
+  
+  max_retries: 3
+  retry_delay: 2
+
+# Status detection patterns
+status_detection:
+  offer_ready:
+    - 'Conditional offer'
+    - 'Unconditional offer'
+    - 'Conditional Offer'
+    - 'Unconditional Offer'
+    - 'Offer ready'
+  accepted:
+    - 'Accepted'
+    - 'Deposit received'
+    - 'Enrolled'
+    - 'Conditional - Deposit received'
+    - 'Unconditional - Deposit received'
+  rejected:
+    - 'Rejected'
+    - 'Declined'
+    - 'Not accepted'
+    - 'Application denied'
+  pending:
+    - 'Pending'
+    - 'Under review'
+    - 'In progress'
+    - 'Submitted'
+    - 'Incomplete'
+
+timeout: 30
+notes: NorQuest College - V2 config-driven, dropdown navigation, opens application in new tab, Print Offer triggers direct download
