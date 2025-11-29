@@ -174,9 +174,11 @@ class ActionExecutor:
                         if success:
                             return True
                     else:
-                        result = await self.browser.click_element(text=hint, timeout=timeout)
+                        # For login/submit/download buttons, use force click (Salesforce buttons need this)
+                        use_force = any(keyword in hint.lower() for keyword in ['login', 'log in', 'sign in', 'submit', 'download', 'print', 'view offer'])
+                        result = await self.browser.click_element(text=hint, timeout=timeout, force=use_force)
                         if result:  # click_element returns bool, not raises
-                            log.info(f"✓ Clicked using hint: {hint}")
+                            log.info(f"✓ Clicked using hint: {hint}{' (forced)' if use_force else ''}")
                             return True
                         else:
                             log.debug(f"Hint '{hint}' click returned False")
@@ -192,6 +194,28 @@ class ActionExecutor:
                     script = f"""
                     (function() {{
                         const searchText = '{hint}';
+                        
+                        // First try Salesforce-specific selectors
+                        const salesforceSelectors = [
+                            'button[type="submit"]',
+                            'input[type="submit"]',
+                            'button.slds-button',
+                            'button[class*="slds-button"]',
+                            'button[aria-label*="Login"]',
+                            'button[aria-label*="Log in"]',
+                            'button[aria-label*="Sign in"]'
+                        ];
+                        for (const selector of salesforceSelectors) {{
+                            try {{
+                                const el = document.querySelector(selector);
+                                if (el && (el.textContent.trim().toLowerCase().includes(searchText.toLowerCase()) || 
+                                          el.getAttribute('aria-label')?.toLowerCase().includes(searchText.toLowerCase()))) {{
+                                    el.scrollIntoView({{behavior: 'instant', block: 'center'}});
+                                    el.click();
+                                    return 'clicked_salesforce_button';
+                                }}
+                            }} catch (e) {{}}
+                        }}
                         
                         // First check overlay container (for dropdowns/menus)
                         const overlayContainer = document.querySelector('.cdk-overlay-container');
@@ -233,12 +257,24 @@ class ActionExecutor:
                                 const isMatButton = clickable.classList.contains('mat-button') || clickable.classList.contains('mat-mdc-button') || 
                                                    clickable.classList.contains('mat-raised-button') || clickable.classList.contains('mat-icon-button');
                                 const isMatMenuItem = clickable.classList.contains('mat-menu-item') || clickable.classList.contains('mat-mdc-menu-item');
+                                // Check for Salesforce Lightning buttons
+                                const isSalesforceButton = clickable.classList.contains('slds-button') || 
+                                                          clickable.classList.toString().includes('slds-button') ||
+                                                          clickable.hasAttribute('data-aura-class') ||
+                                                          clickable.getAttribute('type') === 'submit';
                                 const hasRole = ['button', 'link', 'menuitem', 'row'].includes(clickable.getAttribute('role'));
                                 const isMatRow = clickable.classList.contains('mat-row') || clickable.classList.contains('mat-mdc-row');
                                 
-                                if (hasClickHandler || isButton || isLink || isMatTrigger || isMatButton || isMatMenuItem || hasRole || isMatRow) {{
+                                if (hasClickHandler || isButton || isLink || isMatTrigger || isMatButton || isMatMenuItem || isSalesforceButton || hasRole || isMatRow) {{
                                     clickable.scrollIntoView({{behavior: 'instant', block: 'center'}});
-                                    clickable.click();
+                                    // For Salesforce, try both click() and dispatchEvent
+                                    try {{
+                                        clickable.click();
+                                    }} catch (e) {{
+                                        // Fallback: dispatch click event
+                                        const clickEvent = new MouseEvent('click', {{ bubbles: true, cancelable: true }});
+                                        clickable.dispatchEvent(clickEvent);
+                                    }}
                                     return 'clicked_parent';
                                 }}
                                 clickable = clickable.parentElement;

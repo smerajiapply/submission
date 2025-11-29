@@ -1,0 +1,159 @@
+school_name: Coventry University
+portal_url: https://partnerportal.coventry.ac.uk
+
+# Login workflow - single-step login (username + password on same page)
+login:
+  steps:
+    - action: find_and_fill
+      target_type: input_field
+      selectors:
+        - 'input[type="email"]'
+        - 'input[name="username"]'
+        - 'input[name="email"]'
+        - 'input[id="username"]'
+        - 'input[id="email"]'
+      hints:
+        - 'Username'
+        - 'Email'
+        - 'User ID'
+      value: '{username}'
+      timeout: 10
+      description: 'Fill username field'
+    
+    - action: find_and_fill
+      target_type: input_field
+      selectors:
+        - 'input[type="password"]'
+        - 'input[name="password"]'
+        - 'input[id="password"]'
+      hints:
+        - 'Password'
+      value: '{password}'
+      timeout: 10
+      description: 'Fill password field'
+    
+    # Salesforce login button - must use selector-based click with force
+    - action: find_and_click
+      target_type: button
+      selectors:
+        - 'button.loginButton'
+        - 'input.loginButton'
+        - 'button[name="Log In"]'
+        - 'input[name="Log In"]'
+        - 'button[type="button"]'
+        - 'button[class*="login"]'
+        - '.loginButton'
+      hints:
+        - 'Log in'
+        - 'Login'  
+      use_javascript: false
+      timeout: 15
+      description: 'Click Salesforce Community login button'
+    
+    - action: wait
+      timeout: 2
+      description: 'Wait after login click'
+    
+    - action: wait_for_load
+      timeout: 15
+      description: 'Wait for dashboard to load after login'
+  
+  max_retries: 3
+  retry_delay: 2
+
+# Navigation workflow - Click Application in header nav, then find application
+navigation:
+  steps:
+    # Step 1: Click Application link in header/nav (NOT "Applications" in content)
+    - action: find_and_click
+      target_type: link
+      selectors:
+        - 'a[title="Application"]'
+        - 'nav a:has-text("Application")'
+        - 'header a:has-text("Application")'
+      hints:
+        - 'Application'
+      use_javascript: false
+      timeout: 20
+      description: 'Click Application link in header navigation'
+    
+    # Step 2: Wait for applications page to load
+    - action: wait_for_load
+      timeout: 30
+      description: 'Wait for applications page to load'
+    
+    # Step 3: Find and click on application by ID
+    - action: find_and_click
+      target_type: text
+      selectors: []
+      hints:
+        - '{application_id}'
+      use_javascript: false
+      timeout: 30
+      description: 'Click on application ID to view details'
+    
+    # Step 4: Wait up to 1 minute for offer to fully load
+    - action: wait_for_load
+      timeout: 60
+      description: 'Wait for application details and offer to fully load (can take up to 1 minute)'
+    
+    # Step 5: Additional wait for dynamic content and offer rendering
+    - action: wait
+      timeout: 10
+      description: 'Extra wait for offer details to fully render'
+  
+  max_retries: 3
+  retry_delay: 2
+
+# Download workflow - Download Offer button (Salesforce - needs force click)
+download:
+  steps:
+    - action: find_and_click
+      target_type: button
+      selectors:
+        - 'button:has-text("Download")'
+        - 'a:has-text("Download")'
+        - 'button[title*="Download"]'
+        - 'a[title*="Download"]'
+      hints:
+        - 'Download Offer'
+        - 'Download offer'
+        - 'Download'
+        - 'View Offer'
+        - 'Print Offer'
+      use_javascript: false
+      triggers_download: true
+      timeout: 30
+      description: 'Click download offer button (Salesforce - will use force click)'
+  
+  max_retries: 3
+  retry_delay: 2
+
+# Status detection patterns
+status_detection:
+  offer_ready:
+    - 'Offer'
+    - 'Conditional offer'
+    - 'Unconditional offer'
+    - 'CAS issued'
+    - 'Offer made'
+  accepted:
+    - 'Accepted'
+    - 'Enrolled'
+    - 'Registered'
+    - 'Deposit paid'
+  rejected:
+    - 'Rejected'
+    - 'Declined'
+    - 'Unsuccessful'
+    - 'Not accepted'
+  pending:
+    - 'Pending'
+    - 'Under review'
+    - 'In progress'
+    - 'Submitted'
+    - 'Processing'
+
+timeout: 30
+notes: Coventry University Partner Portal (Salesforce Community) - single-step login, click Application in header nav, find application in list, download offer
+

@@ -108,18 +108,19 @@ class PlaywrightManager:
         self,
         selector: Optional[str] = None,
         text: Optional[str] = None,
-        timeout: Optional[int] = None
+        timeout: Optional[int] = None,
+        force: bool = False
     ) -> bool:
         """Click an element by selector or text"""
         try:
             timeout_ms = timeout * 1000 if timeout else self.timeout
             
             if selector:
-                log.info(f"Clicking element: {selector}")
-                await self.page.click(selector, timeout=timeout_ms)
+                log.info(f"Clicking element: {selector}{' (force)' if force else ''}")
+                await self.page.click(selector, timeout=timeout_ms, force=force)
             elif text:
-                log.info(f"Clicking element with text: {text}")
-                await self.page.click(f"text={text}", timeout=timeout_ms)
+                log.info(f"Clicking element with text: {text}{' (force)' if force else ''}")
+                await self.page.click(f"text={text}", timeout=timeout_ms, force=force)
             else:
                 log.error("No selector or text provided for click")
                 return False

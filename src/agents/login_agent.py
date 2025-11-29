@@ -79,15 +79,30 @@ class LoginAgent:
                 # Verify login success
                 await self.browser.capture_screenshot("after_login")
                 page_text = await self.browser.get_page_text()
+                current_url = await self.browser.get_current_url()
                 
                 log.info(f"Page text after login: {len(page_text)} characters")
+                log.info(f"Current URL after login: {current_url}")
+                log.info(f"First 500 chars of page text: {page_text[:500]}")
+                
+                # Check URL first - if it changed from login URL, likely successful
+                login_url_indicators = ["login", "signin", "auth"]
+                url_changed = not any(ind in current_url.lower() for ind in login_url_indicators)
+                
+                if url_changed:
+                    log.info("✓ URL changed - login likely successful")
+                    return True
                 
                 # Check if we're still on login page (failed login)
-                if any(indicator in page_text.lower() for indicator in ["sign in", "login", "username", "password"]):
-                    # But also check for dashboard indicators
-                    if not any(indicator in page_text.lower() for indicator in ["dashboard", "welcome", "applications", "logout"]):
-                        log.warning("Still on login page, login may have failed")
-                        raise Exception("Login verification failed - still on login page")
+                login_indicators = ["sign in", "login", "username", "password"]
+                dashboard_indicators = ["dashboard", "welcome", "applications", "logout", "home", "menu"]
+                
+                has_login_text = any(indicator in page_text.lower() for indicator in login_indicators)
+                has_dashboard_text = any(indicator in page_text.lower() for indicator in dashboard_indicators)
+                
+                if has_login_text and not has_dashboard_text:
+                    log.warning("Still on login page, login may have failed")
+                    raise Exception("Login verification failed - still on login page")
                 
                 log.info("✓ Login successful!")
                 return True
